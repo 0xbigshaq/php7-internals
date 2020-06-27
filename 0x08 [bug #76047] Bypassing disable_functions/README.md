@@ -1,4 +1,4 @@
-# Bug #76047 - Bypassing ``disabled_functions``
+# Bug #76047 - Bypassing ``disable_functions``
 
 >The exploit we'll talk about in this chapter is intended for **post-exploitation**. You'll use it cases where you have a File Upload vulnerability but the target PHP environment is hardened and you cannot execute dangerous functions such as ``system()``, ``passthru()``, ``exec()`` etc. 
 >
