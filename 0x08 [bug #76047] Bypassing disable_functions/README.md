@@ -1,4 +1,4 @@
-# Bug #76047 - breaking ``disabled_functions``
+# Bug #76047 - Bypassing ``disabled_functions``
 
 >The exploit we'll talk about in this chapter is intended for **post-exploitation**. You'll use it cases where you have a File Upload vulnerability but the target PHP environment is hardened and you cannot execute dangerous functions such as ``system()``, ``passthru()``, ``exec()`` etc. 
 >
@@ -323,7 +323,7 @@ function write(&$str, $p, $v, $n = 8) {
 }
 ```
 
-In the next lines of the exploit([187-188](exploit.php#L187)), the author uses the  ``write()`` function to write the values ``2`` and ``6`` at specific offsets (``0x60`` and ``0x70``):
+In the next lines of the exploit([187-188](exploit.php#L187-L188)), the author uses the  ``write()`` function to write the values ``2`` and ``6`` at specific offsets (``0x60`` and ``0x70``):
 ```php
 write($abc, 0x60, 2);
 write($abc, 0x70, 6);
@@ -382,7 +382,7 @@ In other words: If we make ``$helper->a`` to point to the value in ``$addr``, wh
 
 This is why in line 3 he subtracted 0x10, which is 16 in decimal. He wanted that ``zend_string.len`` will land exactly at the value that ``strlen()`` returns)
 
-Example of a leak (Lines [195-196](exploit.php#L195) in the exploit):
+Example of a leak (Lines [195-196](exploit.php#L195-L196) in the exploit):
 
 The variable ``$closure_handlers`` contains the hex value ``0xef6dc0``:
 
@@ -474,7 +474,7 @@ if(!($zif_system = get_system($basic_funcs))) {
 
 All of the functions above (from ``get_binary_base()`` to ``get_system()`` at the end of the snippet) are not doing anything special. They are all just wrappers of ``leak()`` (which we already explained). Here's a short description of what they're doing:
 
-1. ``$base = get_binary_base($binary_leak)``: returns the binary base address by calling ``leak($binary_leak)`` over and over again in a loop until it hits the *ELF header* (if ``$leak == 0x10102464c457f`` is true then it returns the address)
+1. ``$base = get_binary_base($binary_leak)``: returns the binary base address by calling ``leak()`` over and over again in a loop until it hits the *ELF header* (if ``$leak == 0x10102464c457f`` is true then it returns the address)
 2. ``$elf = parse_elf($base)``: Returns an array with useful sizes and addresses of different segments in the memory ( ``return [$data_addr, $text_size, $data_size];`` ) 
 3. ``$basic_funcs = get_basic_funcs($base, $elf)``: Using the 2 previous values we leaked (above), we are retrieving the address of PHP's *basic functions*.
 
@@ -490,9 +490,9 @@ The ``functions`` property(in red) is our *basic funcs*. It contains internal PH
 
 ## Creating a Fake Closure Object
 
->**Reminder**: In the beginning of the exploit, we set ``$helper->b = function ($x) { }; ``. This is just an empty anonymous function (or, **[*closure*](https://www.php.net/manual/en/functions.anonymous.php) object in "Zend land"**) that accepts one argument and basically doing nothing. It's useless right now but soon we will turn it into ``system`` 🔫
+>**Reminder**: In the beginning of the exploit, we set ``$helper->b = function ($x) { }; ``. This is just an empty anonymous function (or, **[*closure*](https://www.php.net/manual/en/functions.anonymous.php) object in "[Zend land](https://github.com/php/php-src/blob/PHP-7.1.0/Zend/zend_closures.c#L40-L46)**") that accepts one argument and basically doing nothing. It's useless right now but soon we will turn it into ``system`` 🔫
 
-To call PHP's ``system()``, we are going to create a fake *closure object* in memory (Lines [214-218](./exploit.php#L214)):
+To call PHP's ``system()``, we are going to create a fake *closure object* in memory (Lines [214-218](./exploit.php#L214-L218)):
 
 ```php
 $closure_obj = str2ptr($abc, 0x20);
@@ -502,21 +502,21 @@ for($i = 0; $i < 0x110; $i += 8) {
     write($abc, $fake_obj_offset + $i, leak($closure_obj, $i));
 }
 ```
-This part is devided into 2 steps:
+This part is divided into 2 steps:
 
-1. ``$closure_obj = str2ptr($abc, 0x20);``: we are retrieving the address of the ``zend_function`` which ``$helper->b`` points to. In the screenshot below you can see that we're printing the zval of ``$helper->b`` and getting the address of our anonymous ``zend_function`` using ``zval.value.func``:
+1. ``$closure_obj = str2ptr($abc, 0x20);``: we are retrieving the address of the ``zend_closure`` which ``$helper->b`` points to. In the screenshot below you can see that we're printing the zval of ``$helper->b`` and getting the address of our anonymous function(or, closure object) using ``zval.value.obj``:
 
 ![screenshot1](./res/properties_table.png)
 
-2. ``for($i = 0; $i < 0x110; $i += 8) { ... } ``: in this part, we're using ``leak()`` and ``write()`` to copy the contents of our leaked ``$closure_obj`` pointer. We are copying it to be somewhere after the ``$helper`` object:
+2. ``for($i = 0; $i < 0x110; $i += 8) { ... } ``: in this loop, we're using ``leak()`` and ``write()`` to **copy** the contents of our leaked ``$closure_obj`` pointer. We are copying it to be somewhere after the ``$helper`` object in the memory:
 
 ![screenshot1](./res/fake_obj_land_here.png)
 
-In yellow: we can see ``$helper->c`` (0x1337) and we can also see the last property of the object, ``$helper->d`` (0x1338)
+In yellow: we can see ``$helper->c`` (0x1337) and we can also see the last property of the PHP object, ``$helper->d`` (0x1338)
 
-In red: This is where our new copy will land(at offset ``0xd0``), outside of the $helper obj
+In red: This is where our new copy will land(at offset ``0xd0``), outside of the $helper PHP object.
 
-After having a fresh copy of an anonymous function in memory, we'll start manipulating its metadata (Lines [221-225](./exploit.php#L221)): 
+After having a fresh copy of an anonymous function in memory, we'll start manipulating its metadata (Lines [221-225](./exploit.php#L221-L225)): 
 
 ```php
 write($abc, 0x20, $abc_addr + $fake_obj_offset);
@@ -524,22 +524,24 @@ write($abc, 0xd0 + 0x38, 1, 4); # internal func type
 write($abc, 0xd0 + 0x68, $zif_system); # internal func handler
 ```
 
-1. In the 1st line: we rewrite the ``zval.value`` of ``$helper->b``, we're making it to point to our malicious copy of ``zend_function`` at offset ``0xd0``.
-2. Line 2 and 3 are responsible for overwriting some of the metadata in the malicious ``zend_function``, you can see the overwrite below:
+1. In the 1st line: we rewrite the ``zval.value.obj`` of ``$helper->b``, we're making it to point to our malicious copy of ``zend_closure`` object at offset ``0xd0``.
+2. Lines 2 and 3 are responsible for overwriting some of the metadata in the malicious ``zend_closure`` object, you can see the overwrite below:
    
 ![screenshot1](./res/final_step.png)
 
 We can see from the diff that:
-* We overwrote a useful function pointer and set it to be ``zif_system`` (Line 37 in the diff)
-* We overwrote the ``zend_function.oparray.last`` value to be ``0x1`` instead of ``0x2`` (Line 29 in the diff). But why? 1 or 2, what does it matter? It took me a while to understand but eventually I realized why the exploit author did it: The Zend Engine calls a function named ``destroy_op_array()`` which causes a crash. But if we set this value to be ``0x1``, we can make this function skip the crash:
+* We overwrote a useful function pointer and set it to be ``zif_system`` (Line 25 in the diff)
+* We overwrote the ``zend_closure.func.type`` value to be ``0x1`` instead of ``0x2`` (Line 7 in the diff). But why? 1 or 2, what does it matter? It took me a while to understand but eventually I realized why the exploit author did it: The Zend Engine calls a function named ``destroy_op_array()`` which causes a crash. But if we set this value to be ``0x1``, we can make skip the crash:
 
 ![screenshot1](./res/zend_closure_free_storage.png)
 
-By setting it to ``0x1``, the ``if()`` statement in line 445(in the snippet above) will not be true and ``destroy_op_array()`` will not be called because PHP thinks it's an internal function and not a user-defined function. #profit
+By setting it to ``0x1``, the ``if()`` statement in line 445(in the snippet above) will not be true and ``destroy_op_array()`` will not be called. #profit 
+
+After looking at the macro from the snippet above(``#define ZEND_USER_FUNCTION 2``), I also realized that the exploit author set it to 0x1 and not 0x2 to make the Zend engine think that it's an internal function and not a user-defined function. 
 
 ## Pwn 🔫
 
-Now that we have our malicious ``zend_function`` set in ``$helper->b``, all we need is to call it in a way that will trigger the ``try_catch_array`` function pointer:
+Now that we have our malicious ``zend_closure`` all-set inside ``$helper->b``, all we need is to call it in a way that will trigger the ``zend_closure.func.internal_function.handler`` function pointer:
 
 ```php
 ($helper->b)('cat /etc/passwd');
@@ -576,10 +578,10 @@ for($i = 0; $i < $n_alloc; $i++)
     $contiguous[] = str_shuffle(str_repeat('A', 79));
 ```
 
-I personally had 99% success rate with this spraying so...it should not worry you. Try it yourself :D
+I personally had 99% success rate with this spraying so...crashes should not worry you. Try it yourself :D
 
 ## More info: 
-* Black Hat USA Conference(2010) - Stefan Esser - Code Reuse/Return Oriented Programming in PHP Application Exploits (this one is pretty old but it's worth watching)
+* Black Hat USA Conference(2010) - Stefan Esser - Code Reuse/Return Oriented Programming in PHP Application Exploits (**this one is pretty old but it's worth watching**)
     - Part 1/5: https://www.youtube.com/watch?v=c0ZCe311YW8
     - Part 2/5: https://www.youtube.com/watch?v=XP6KpKhDlg0
     - Part 3/5: https://www.youtube.com/watch?v=rF9UK4dxtBs
