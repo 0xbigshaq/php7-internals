@@ -31,7 +31,7 @@ This is the directory tree after un-zipping the file:
 
 Everything is readable to the public usergroup. And it's recursive (sub-directories are affected as well).
 
->**Note**: In other systems it can be a "full 777 permission"(like ``rwxrwxrwx``) but on my system it's not due to my *uname* setting (I kept the default setting so you can see a real-life scenario).
+>**Note**: In other systems it can be a "full 777 permission"(like ``rwxrwxrwx``) but on my system it's not due to my *umask* setting (I kept the default setting so you can see a real-life scenario).
 
 ## Impact / Threat
 
